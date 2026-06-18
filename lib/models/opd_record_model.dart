@@ -91,6 +91,53 @@ class OPDRecordModel extends HiveObject {
     this.bloodGroup = '',
   });
 
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'patient_id': patientId,
+    'type': type,
+    'symptoms': symptoms,
+    'diagnosis': diagnosis,
+    'medicines': medicines,
+    'visit_date': visitDate.toIso8601String(),
+    'clinical_notes': clinicalNotes,
+    'consultation_fee': consultationFee,
+    'medicine_fee': medicineFee,
+    'discount': discount,
+    'payment_mode': paymentMode,
+    'charge_type': chargeType,
+    'previous_visit_date': previousVisitDate,
+    'follow_up_reason': followUpReason,
+    'next_visit': nextVisit,
+    'blood_group': bloodGroup,
+    'created_at': createdAt.toIso8601String(),
+    'updated_at': updatedAt.toIso8601String(),
+    'is_synced': isSynced ? 1 : 0,
+  };
+
+  factory OPDRecordModel.fromJson(Map<String, dynamic> json) => OPDRecordModel(
+    id: json['id']?.toString() ?? '',
+    patientId: json['patient_id']?.toString() ?? '',
+    type: json['type']?.toString() ?? 'consultation',
+    symptoms: json['symptoms']?.toString() ?? '',
+    diagnosis: json['diagnosis']?.toString() ?? '',
+    medicines: json['medicines']?.toString() ?? '',
+    visitDate: DateTime.tryParse(json['visit_date']?.toString() ?? '') ?? DateTime.now(),
+    isDraft: false,
+    isSynced: json['is_synced'] == true || json['is_synced'] == 1,
+    createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
+    updatedAt: DateTime.tryParse(json['updated_at']?.toString() ?? '') ?? DateTime.now(),
+    clinicalNotes: json['clinical_notes']?.toString() ?? '',
+    consultationFee: json['consultation_fee']?.toString() ?? '',
+    medicineFee: json['medicine_fee']?.toString() ?? '',
+    discount: json['discount']?.toString() ?? '',
+    paymentMode: json['payment_mode']?.toString() ?? '',
+    chargeType: json['charge_type']?.toString() ?? '',
+    previousVisitDate: json['previous_visit_date']?.toString() ?? '',
+    followUpReason: json['follow_up_reason']?.toString() ?? '',
+    nextVisit: json['next_visit']?.toString() ?? '',
+    bloodGroup: json['blood_group']?.toString() ?? '',
+  );
+
   OPDRecordModel copyWith({
     String? id,
     String? patientId,

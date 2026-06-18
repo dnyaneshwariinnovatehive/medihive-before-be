@@ -51,6 +51,34 @@ class PatientModel extends HiveObject {
     this.bloodGroup = 'Not Specified',
   });
 
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'dob': dob,
+    'age': age,
+    'gender': gender,
+    'blood_group': bloodGroup,
+    'mobile': mobile,
+    'address': address,
+    'created_at': createdAt.toIso8601String(),
+    'updated_at': updatedAt.toIso8601String(),
+    'is_synced': isSynced ? 1 : 0,
+  };
+
+  factory PatientModel.fromJson(Map<String, dynamic> json) => PatientModel(
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? '',
+    dob: json['dob']?.toString() ?? '',
+    age: int.tryParse(json['age']?.toString() ?? '') ?? 0,
+    gender: json['gender']?.toString() ?? 'Not Specified',
+    bloodGroup: json['blood_group']?.toString() ?? 'Not Specified',
+    mobile: json['mobile']?.toString() ?? '',
+    address: json['address']?.toString() ?? '',
+    createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
+    updatedAt: DateTime.tryParse(json['updated_at']?.toString() ?? '') ?? DateTime.now(),
+    isSynced: json['is_synced'] == true || json['is_synced'] == 1,
+  );
+
   PatientModel copyWith({
     String? id,
     String? name,

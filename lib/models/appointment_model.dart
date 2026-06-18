@@ -35,6 +35,26 @@ class AppointmentModel extends HiveObject {
     required this.updatedAt,
   });
 
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'patient_id': patientId,
+    'date_time': dateTime.toIso8601String(),
+    'notes': notes,
+    'created_at': createdAt.toIso8601String(),
+    'updated_at': updatedAt.toIso8601String(),
+    'is_synced': isSynced ? 1 : 0,
+  };
+
+  factory AppointmentModel.fromJson(Map<String, dynamic> json) => AppointmentModel(
+    id: json['id']?.toString() ?? '',
+    patientId: json['patient_id']?.toString() ?? '',
+    dateTime: DateTime.tryParse(json['date_time']?.toString() ?? '') ?? DateTime.now(),
+    notes: json['notes']?.toString() ?? '',
+    isSynced: json['is_synced'] == true || json['is_synced'] == 1,
+    createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
+    updatedAt: DateTime.tryParse(json['updated_at']?.toString() ?? '') ?? DateTime.now(),
+  );
+
   AppointmentModel copyWith({
     String? id,
     String? patientId,

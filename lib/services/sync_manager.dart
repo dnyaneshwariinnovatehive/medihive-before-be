@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'api_service.dart';
 import 'connectivity_service.dart';
 import 'google_auth_service.dart';
 import 'google_drive_sync_service.dart';
@@ -107,27 +109,135 @@ class SyncManager extends ChangeNotifier {
     }
   }
 
+  int _getUnsyncedCount() {
+    try {
+      final patientsBox = Hive.box<PatientModel>('patients');
+      final opdBox = Hive.box<OPDRecordModel>('opd_records');
+      final apptBox = Hive.box<AppointmentModel>('appointments');
+      return patientsBox.values.where((p) => !p.isSynced).length +
+          opdBox.values.where((r) => !r.isSynced).length +
+          apptBox.values.where((a) => !a.isSynced).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   Future<void> _trySync() async {
     if (kIsWeb) return;
     if (!_connectivityService.currentStatus) return;
-
-    if (!_isSignedIn) {
-      _isSignedIn = await _authService.isSignedIn();
-    }
-    if (!_isSignedIn) return;
-
     if (_syncState == SyncState.syncing) return;
 
     _syncState = SyncState.syncing;
     notifyListeners();
 
     try {
-      await _driveService.syncPendingRecords();
+      // 1. Sync with Flask API
+      await _syncWithFlask();
+
+      // 2. Also backup to Google Drive if signed in
+      if (!_isSignedIn) {
+        _isSignedIn = await _authService.isSignedIn();
+      }
+      if (_isSignedIn) {
+        try {
+          await _driveService.syncPendingRecords();
+        } catch (_) {}
+      }
+
       _syncState = SyncState.synced;
       notifyListeners();
     } catch (_) {
       _syncState = SyncState.error;
       notifyListeners();
+    }
+  }
+
+  Future<void> _syncWithFlask() async {
+    final unsyncedCount = _getUnsyncedCount();
+
+    // Push local changes to Flask
+    if (unsyncedCount > 0) {
+      final patientsBox = Hive.box<PatientModel>('patients');
+      final opdBox = Hive.box<OPDRecordModel>('opd_records');
+      final apptBox = Hive.box<AppointmentModel>('appointments');
+
+      final unsyncedPatients = patientsBox.values.where((p) => !p.isSynced).toList();
+      final unsyncedOpd = opdBox.values.where((r) => !r.isSynced).toList();
+      final unsyncedAppts = apptBox.values.where((a) => !a.isSynced).toList();
+
+      if (unsyncedPatients.isNotEmpty || unsyncedOpd.isNotEmpty || unsyncedAppts.isNotEmpty) {
+        final pushData = <String, List<Map<String, dynamic>>>{
+          'patients': unsyncedPatients.map((p) => p.toJson()).toList(),
+          'opd_records': unsyncedOpd.map((r) => r.toJson()).toList(),
+          'appointments': unsyncedAppts.map((a) => a.toJson()).toList(),
+        };
+
+        await ApiService.syncPush(
+          patients: pushData['patients']!,
+          opdRecords: pushData['opd_records']!,
+          appointments: pushData['appointments']!,
+        );
+
+        // Mark as synced
+        final now = DateTime.now();
+        for (final p in unsyncedPatients) {
+          final updated = p.copyWith(isSynced: true, updatedAt: now);
+          patientsBox.put(p.id, updated);
+        }
+        for (final r in unsyncedOpd) {
+          final updated = r.copyWith(isSynced: true, updatedAt: now);
+          opdBox.put(r.id, updated);
+        }
+        for (final a in unsyncedAppts) {
+          final updated = a.copyWith(isSynced: true, updatedAt: now);
+          apptBox.put(a.id, updated);
+        }
+      }
+    }
+
+    // Pull remote changes from Flask
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastSync = prefs.getString('last_flask_sync') ?? '';
+      final data = await ApiService.syncPull(lastSync);
+
+      final remotePatients = data['patients'] as List<dynamic>? ?? [];
+      final remoteOpd = data['opd_records'] as List<dynamic>? ?? [];
+      final remoteAppts = data['appointments'] as List<dynamic>? ?? [];
+
+      if (remotePatients.isNotEmpty || remoteOpd.isNotEmpty || remoteAppts.isNotEmpty) {
+        final patientsBox = Hive.box<PatientModel>('patients');
+        final opdBox = Hive.box<OPDRecordModel>('opd_records');
+        final apptBox = Hive.box<AppointmentModel>('appointments');
+
+        for (final json in remotePatients) {
+          final map = Map<String, dynamic>.from(json as Map);
+          final existing = patientsBox.get(map['id']);
+          if (existing == null || existing.updatedAt.isBefore(DateTime.parse(map['updated_at']))) {
+            patientsBox.put(map['id'], PatientModel.fromJson(map));
+          }
+        }
+
+        for (final json in remoteOpd) {
+          final map = Map<String, dynamic>.from(json as Map);
+          final existing = opdBox.get(map['id']);
+          if (existing == null || existing.updatedAt.isBefore(DateTime.parse(map['updated_at']))) {
+            opdBox.put(map['id'], OPDRecordModel.fromJson(map));
+          }
+        }
+
+        for (final json in remoteAppts) {
+          final map = Map<String, dynamic>.from(json as Map);
+          final existing = apptBox.get(map['id']);
+          if (existing == null || existing.updatedAt.isBefore(DateTime.parse(map['updated_at']))) {
+            apptBox.put(map['id'], AppointmentModel.fromJson(map));
+          }
+        }
+      }
+
+      await prefs.setString('last_flask_sync', data['server_time']?.toString() ?? DateTime.now().toUtc().toIso8601String());
+    } catch (_) {
+      // Pull might fail if server is unreachable — that's OK, push already succeeded
     }
   }
 
@@ -139,18 +249,20 @@ class SyncManager extends ChangeNotifier {
     notifyListeners();
 
     try {
+      await _syncWithFlask();
       await _driveService.syncPendingRecords();
+
       _syncState = SyncState.synced;
       notifyListeners();
 
       await NotificationProvider.addNotificationSilently(
         'Sync Complete',
-        'Backup synced to Google Drive',
+        'Data synced to server and Google Drive',
       );
 
       scaffoldMessengerKey.currentState?.showSnackBar(
         SnackBar(
-          content: const Text('✓ Data synced to Google Drive'),
+          content: const Text('✓ Data synced'),
           backgroundColor: AppTheme.primary,
           behavior: SnackBarBehavior.floating,
         ),
